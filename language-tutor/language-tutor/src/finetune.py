@@ -32,6 +32,20 @@ class TutorLLM:
         )
         return completion.choices[0].message.content.strip()
 
+    def _stream(self, messages: list, temperature: float = 0.5, max_tokens: int = 600):
+        """Yield text chunks from a streaming Groq completion."""
+        stream = self.client.chat.completions.create(
+            model=self.cfg.groq_model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
     def chat(
         self,
         message: str,
@@ -59,6 +73,31 @@ class TutorLLM:
 
         messages.append({"role": "user", "content": message})
         return self._call(messages, temperature=0.6, max_tokens=400)
+
+    def chat_stream(
+        self,
+        message: str,
+        history: List[List[str]],
+        language: str = "English",
+        level: str = "Beginner (A1-A2)",
+    ):
+        """Stream chat tokens one chunk at a time."""
+        system = (
+            f"You are LinguaBot, a warm and encouraging AI language tutor inspired by Duolingo. "
+            f"You are helping a {level} learner practice {language}. "
+            "Be concise, friendly, and educational. "
+            "When the student makes errors, correct them gently with a brief explanation. "
+            "Use occasional emojis to stay engaging. "
+            "Keep responses under 160 words unless a detailed grammar explanation is requested."
+        )
+        messages = [{"role": "system", "content": system}]
+        for pair in history[-8:]:
+            if pair[0]:
+                messages.append({"role": "user", "content": pair[0]})
+            if pair[1]:
+                messages.append({"role": "assistant", "content": pair[1]})
+        messages.append({"role": "user", "content": message})
+        yield from self._stream(messages, temperature=0.6, max_tokens=400)
 
     def check_grammar(
         self,
