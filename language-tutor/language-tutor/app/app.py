@@ -66,10 +66,24 @@ def handle_grammar(text: str, language: str, level: str) -> str:
         return f"Error: {e}"
 
 
-def handle_quiz(language: str, level: str, topic_dd: str, topic_custom: str) -> str:
+def handle_quiz(language: str, level: str, topic_dd: str, topic_custom: str):
     topic = topic_custom.strip() or topic_dd
     try:
-        return get_llm().generate_quiz(language=language, level=level, topic=topic)
+        questions = get_llm().generate_quiz(language=language, level=level, topic=topic)
+    except Exception as e:
+        questions = f"Error: {e}"
+    return questions, "", ""
+
+
+def handle_quiz_check(quiz_text: str, user_answers: str, language: str, level: str) -> str:
+    if not quiz_text.strip():
+        return "Please generate a quiz first."
+    if not user_answers.strip():
+        return "Please write your answers before checking."
+    try:
+        return get_llm().check_quiz_answers(
+            quiz_text, user_answers, language=language, level=level
+        )
     except Exception as e:
         return f"Error: {e}"
 
@@ -164,12 +178,29 @@ def create_app() -> gr.Blocks:
                 )
                 quiz_btn = gr.Button("Generate Quiz", variant="primary")
                 quiz_out = gr.Textbox(
-                    label="Quiz", lines=20, interactive=False,
+                    label="Questions", lines=12, interactive=False,
+                )
+                user_answers = gr.Textbox(
+                    label="Your Answers",
+                    placeholder=(
+                        "Write your answers here, e.g.:\n"
+                        "1. coffee\n2. a\n3. b\n4. Sie trinkt Kaffee\n5. …"
+                    ),
+                    lines=6,
+                )
+                check_btn = gr.Button("Check My Answers", variant="primary")
+                quiz_feedback = gr.Textbox(
+                    label="Results & Feedback", lines=14, interactive=False,
                 )
                 quiz_btn.click(
                     handle_quiz,
                     [lang_sel, level_sel, topic_dd, topic_custom],
-                    quiz_out,
+                    [quiz_out, user_answers, quiz_feedback],
+                )
+                check_btn.click(
+                    handle_quiz_check,
+                    [quiz_out, user_answers, lang_sel, level_sel],
+                    quiz_feedback,
                 )
 
             # ── Translation ────────────────────────────────────────────────

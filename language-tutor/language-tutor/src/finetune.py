@@ -127,25 +127,47 @@ class TutorLLM:
         level: str = "Beginner (A1-A2)",
         topic: str = "",
     ) -> str:
-        """Generate a Duolingo-style vocabulary/grammar quiz."""
+        """Generate a quiz — questions only, no answers."""
         topic_str = f" on the topic of **{topic}**" if topic.strip() else ""
         system = (
             f"You are a creative language quiz designer for {language} learners at {level} level. "
-            "Create fun, Duolingo-style exercises."
+            "Create fun, Duolingo-style exercises. NEVER reveal answers in this step."
         )
         user = (
             f"Create a short quiz{topic_str} for a {level} {language} learner.\n\n"
             "Include these **three** exercise types:\n\n"
-            "**📝 Fill in the Blank** (2 questions — show the answer after each):\n"
-            "[question with ___ blank]\nAnswer: [word]\n\n"
-            "**🔤 Multiple Choice** (2 questions — mark correct answer with ✓):\n"
+            "**📝 Fill in the Blank** (2 questions):\n"
+            "[question with ___ blank — do NOT include the answer]\n\n"
+            "**🔤 Multiple Choice** (2 questions — do NOT mark the correct answer):\n"
             "[question]\na) ... b) ... c) ... d) ...\n\n"
-            "**🌍 Translate This** (1 sentence):\n"
-            "[sentence to translate into the target language]\nModel answer: [translation]\n\n"
-            "Keep everything appropriate for the level. Be encouraging!"
+            "**🌍 Translate This** (1 sentence — do NOT provide a model answer):\n"
+            "[sentence to translate into {language}]\n\n"
+            "Show ONLY the questions. No answers, no hints, no correct-answer markers."
         )
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-        return self._call(messages, temperature=0.7, max_tokens=700)
+        return self._call(messages, temperature=0.7, max_tokens=600)
+
+    def check_quiz_answers(
+        self,
+        quiz_text: str,
+        user_answers: str,
+        language: str = "English",
+        level: str = "Beginner (A1-A2)",
+    ) -> str:
+        """Evaluate student answers against the quiz questions."""
+        system = (
+            f"You are a friendly {language} quiz evaluator for {level} learners. "
+            "Give encouraging, clear feedback."
+        )
+        user = (
+            f"Quiz questions:\n{quiz_text}\n\n"
+            f"Student's answers:\n{user_answers}\n\n"
+            "For each question, reveal the correct answer and tell the student if they were "
+            "right or wrong with a brief explanation. "
+            "End with a score out of 5 and a short motivating message."
+        )
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        return self._call(messages, temperature=0.4, max_tokens=700)
 
     def check_translation(
         self,
