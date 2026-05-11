@@ -1,0 +1,8 @@
+Run classic ML pipeline:
+  python -m src.preprocess
+  python -m src.classifier
+  python -m src.evaluate
+
+Run UI:
+  python -m app.app
+

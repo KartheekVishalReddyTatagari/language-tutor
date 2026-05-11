@@ -1,0 +1,19 @@
+{
+  "seed": 42,
+  "num_rows": 10000,
+  "num_classes": 5,
+  "label2id": {
+    "article_usage": 0,
+    "plural_noun": 1,
+    "subject_verb_agreement": 2,
+    "tense": 3,
+    "word_order": 4
+  },
+  "id2label": {
+    "0": "article_usage",
+    "1": "plural_noun",
+    "2": "subject_verb_agreement",
+    "3": "tense",
+    "4": "word_order"
+  }
+}

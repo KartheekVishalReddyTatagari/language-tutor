@@ -1,0 +1,6 @@
+{
+  "test_accuracy": 1.0,
+  "seed": 42,
+  "dataset_rows": 10000,
+  "num_classes": 5
+}

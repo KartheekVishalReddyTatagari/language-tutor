@@ -1,0 +1,11 @@
+services:
+  language-tutor:
+    build: .
+    ports:
+      - "7860:7860"
+    env_file:
+      - .env
+    environment:
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.1-8b-instant}
+      - PORT=7860
+    restart: unless-stopped

@@ -1,0 +1,132 @@
+{
+  "seed": 42,
+  "dataset_rows": 10000,
+  "num_classes": 5,
+  "models": {
+    "logreg": {
+      "test_accuracy": 1.0,
+      "roc_auc_macro": 1.0,
+      "cv_accuracy_mean": 1.0,
+      "cv_accuracy_std": 0.0,
+      "grid_search": {
+        "best_params": {
+          "clf__C": 0.5,
+          "clf__solver": "lbfgs",
+          "tfidf__ngram_range": [
+            1,
+            1
+          ]
+        },
+        "best_cv_accuracy": 1.0
+      },
+      "classification": {
+        "accuracy": 1.0,
+        "per_class": {
+          "labels": [
+            "article_usage",
+            "plural_noun",
+            "subject_verb_agreement",
+            "tense",
+            "word_order"
+          ],
+          "precision": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "recall": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "f1": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "support": [
+            400,
+            400,
+            400,
+            400,
+            400
+          ]
+        }
+      },
+      "figures": {
+        "confusion_matrix": "outputs/figures\\confusion_matrix_logreg.png",
+        "roc_curves": "outputs/figures\\roc_curves_logreg.png",
+        "precision_recall": "outputs/figures\\precision_recall_logreg.png",
+        "learning_curve": "outputs/figures\\learning_curve_logreg.png"
+      }
+    },
+    "svm": {
+      "test_accuracy": 1.0,
+      "roc_auc_macro": 1.0,
+      "cv_accuracy_mean": 1.0,
+      "cv_accuracy_std": 0.0,
+      "grid_search": {
+        "best_params": {
+          "clf__C": 0.5,
+          "tfidf__ngram_range": [
+            1,
+            1
+          ]
+        },
+        "best_cv_accuracy": 1.0
+      },
+      "classification": {
+        "accuracy": 1.0,
+        "per_class": {
+          "labels": [
+            "article_usage",
+            "plural_noun",
+            "subject_verb_agreement",
+            "tense",
+            "word_order"
+          ],
+          "precision": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "recall": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "f1": [
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "support": [
+            400,
+            400,
+            400,
+            400,
+            400
+          ]
+        }
+      },
+      "figures": {
+        "confusion_matrix": "outputs/figures\\confusion_matrix_svm.png",
+        "roc_curves": "outputs/figures\\roc_curves_svm.png",
+        "precision_recall": "outputs/figures\\precision_recall_svm.png",
+        "learning_curve": "outputs/figures\\learning_curve_svm.png"
+      }
+    }
+  }
+}
