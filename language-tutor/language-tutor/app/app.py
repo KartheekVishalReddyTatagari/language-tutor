@@ -1,4 +1,5 @@
 import os
+import re
 
 import gradio as gr
 from dotenv import load_dotenv
@@ -29,6 +30,19 @@ def get_llm() -> TutorLLM:
         )
         _llm = TutorLLM(cfg)
     return _llm
+
+
+# ── Score parser ──────────────────────────────────────────────────────────────
+
+def parse_quiz_score(text: str) -> float:
+    """Extract score as 0.0-1.0 from AI feedback text. Returns -1 if not found."""
+    m = re.search(r'(\d+)\s*/\s*5', text)
+    if m:
+        return int(m.group(1)) / 5.0
+    m = re.search(r'(\d+)\s+out\s+of\s+5', text, re.IGNORECASE)
+    if m:
+        return int(m.group(1)) / 5.0
+    return -1.0
 
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
@@ -73,17 +87,19 @@ def handle_quiz(native: str, language: str, level: str, topic_dd: str, topic_cus
     return questions, "", ""
 
 
-def handle_quiz_check(quiz_text: str, user_answers: str, native: str, language: str, level: str) -> str:
+def handle_quiz_check(quiz_text: str, user_answers: str,
+                      native: str, language: str, level: str):
     if not quiz_text.strip():
-        return "Please generate a quiz first."
+        return "Please generate a quiz first.", -1.0
     if not user_answers.strip():
-        return "Please write your answers before checking."
+        return "Please write your answers before checking.", -1.0
     try:
-        return get_llm().check_quiz_answers(
+        feedback = get_llm().check_quiz_answers(
             quiz_text, user_answers, native=native, language=language, level=level
         )
+        return feedback, parse_quiz_score(feedback)
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error: {e}", -1.0
 
 
 def handle_quick_translate(text: str, from_lang: str, to_lang: str) -> str:
@@ -95,7 +111,8 @@ def handle_quick_translate(text: str, from_lang: str, to_lang: str) -> str:
         return f"Error: {e}"
 
 
-def handle_translation(original: str, translation: str, from_lang: str, to_lang: str) -> str:
+def handle_translation(original: str, translation: str,
+                       from_lang: str, to_lang: str) -> str:
     if not original.strip() or not translation.strip():
         return "Please fill in both fields."
     try:
@@ -106,10 +123,173 @@ def handle_translation(original: str, translation: str, from_lang: str, to_lang:
         return f"Error: {e}"
 
 
+# ── Animation JS — loaded via demo.load() so it actually executes ─────────────
+# gr.HTML innerHTML does NOT execute <script> tags (browser security).
+# demo.load(fn=None, js=...) runs the JS string as a function when the page loads.
+
+ANIM_JS_DEF = r"""
+() => {
+window.triggerLinguaAnimation = function(score) {
+    score = parseFloat(score);
+    if (isNaN(score) || score < 0) return;
+
+    var tier, colors, msg, msgColor, duration;
+    if (score >= 0.8) {
+        tier = 'legendary';
+        colors = ['#f0d080','#fbbf24','#ffffff','#fef3c7','#f59e0b','#fcd34d'];
+        msg = '\u{1F3C6}  RUNE MASTERED  \u{1F3C6}';
+        msgColor = '#f0d080';
+        duration = 320;
+    } else if (score >= 0.5) {
+        tier = 'worthy';
+        colors = ['#60a5fa','#a78bfa','#34d399','#f472b6','#fbbf24','#38bdf8'];
+        msg = '⚡  WORTHY OF THE ERDTREE  ⚡';
+        msgColor = '#60a5fa';
+        duration = 240;
+    } else if (score >= 0.2) {
+        tier = 'learning';
+        colors = ['#6366f1','#8b5cf6','#4f46e5','#a78bfa','#7c3aed'];
+        msg = '🔥  YOUR POWER GROWS  🔥';
+        msgColor = '#a78bfa';
+        duration = 200;
+    } else {
+        tier = 'defeated';
+        colors = ['#4b5563','#6b7280','#9ca3af','#374151','#52525b'];
+        msg = '💀  THE ARCANE DEMANDS PATIENCE  💀';
+        msgColor = '#9ca3af';
+        duration = 200;
+    }
+
+    /* canvas */
+    var canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;top:0;left:0;pointer-events:none;z-index:9998;';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    canvas.style.width = '100vw';
+    canvas.style.height = '100vh';
+    document.body.appendChild(canvas);
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width, H = canvas.height;
+
+    /* flash overlay */
+    var flash = document.createElement('div');
+    var flashBg = tier==='legendary'?'rgba(240,208,128,0.14)':
+                  tier==='worthy'?'rgba(96,165,250,0.1)':
+                  tier==='learning'?'rgba(139,92,246,0.08)':'rgba(75,85,99,0.1)';
+    flash.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9997;transition:opacity 0.9s ease;background:'+flashBg+';';
+    document.body.appendChild(flash);
+    setTimeout(function(){ flash.style.opacity = '0'; }, 300);
+
+    /* message */
+    var msgEl = document.createElement('div');
+    msgEl.textContent = msg;
+    msgEl.style.cssText =
+        'position:fixed;top:44%;left:50%;transform:translate(-50%,-50%);z-index:9999;'+
+        'pointer-events:none;font-weight:800;letter-spacing:0.14em;text-align:center;'+
+        'font-family:Inter,system-ui,sans-serif;white-space:nowrap;'+
+        'font-size:clamp(1rem,2.8vw,1.9rem);'+
+        'color:'+msgColor+';text-shadow:0 0 30px '+msgColor+',0 0 60px '+msgColor+';'+
+        'opacity:0;transition:opacity 0.4s ease;';
+    document.body.appendChild(msgEl);
+    setTimeout(function(){ msgEl.style.opacity = '1'; }, 120);
+    setTimeout(function(){ msgEl.style.opacity = '0'; }, (duration - 60) * 16);
+
+    /* particles */
+    var particles = [];
+
+    function spawnBurst(x, y, n, spd, life, grav) {
+        for (var i = 0; i < n; i++) {
+            var a = Math.random() * Math.PI * 2;
+            var s = spd * (0.3 + Math.random() * 0.7);
+            var l = life * (0.6 + Math.random() * 0.8);
+            particles.push({
+                x:x, y:y,
+                vx:Math.cos(a)*s, vy:Math.sin(a)*s,
+                color:colors[Math.floor(Math.random()*colors.length)],
+                size:1+Math.random()*3,
+                life:l, maxLife:l, gravity:grav
+            });
+        }
+    }
+
+    /* initial burst */
+    if (tier === 'legendary') {
+        spawnBurst(W/2, H/2,  120, 15, 130, 0.18);
+        spawnBurst(W*0.25, H*0.4, 60, 11, 100, 0.16);
+        spawnBurst(W*0.75, H*0.4, 60, 11, 100, 0.16);
+    } else if (tier === 'worthy') {
+        spawnBurst(W/2, H/3,  80, 12, 100, 0.15);
+        spawnBurst(W*0.2, H*0.5, 40, 10, 80, 0.13);
+        spawnBurst(W*0.8, H*0.5, 40, 10, 80, 0.13);
+    }
+
+    var frame = 0;
+
+    function animate() {
+        if (frame >= duration) {
+            canvas.remove(); flash.remove(); msgEl.remove();
+            return;
+        }
+        ctx.clearRect(0, 0, W, H);
+
+        /* ongoing spawning */
+        if (tier === 'legendary') {
+            if (frame % 14 === 0 && frame < 130)
+                spawnBurst(W*0.1+Math.random()*W*0.8, Math.random()*H*0.55, 35, 11, 90, 0.17);
+            if (frame % 3 === 0 && frame < 90)
+                particles.push({x:Math.random()*W, y:-6,
+                    vx:(Math.random()-0.5)*2, vy:3+Math.random()*4,
+                    color:colors[Math.floor(Math.random()*colors.length)],
+                    size:2+Math.random()*4, life:70+Math.random()*50, maxLife:120, gravity:0.09});
+        } else if (tier === 'worthy') {
+            if (frame % 22 === 0 && frame < 160)
+                spawnBurst(W*0.1+Math.random()*W*0.8, H*0.1+Math.random()*H*0.55, 30, 10, 80, 0.14);
+        } else if (tier === 'learning') {
+            if (frame % 5 === 0)
+                for (var j = 0; j < 5; j++)
+                    particles.push({x:W/2+(Math.random()-0.5)*180, y:H*0.88,
+                        vx:(Math.random()-0.5)*4, vy:-(2+Math.random()*6),
+                        color:colors[Math.floor(Math.random()*colors.length)],
+                        size:1+Math.random()*2.5, life:45+Math.random()*55, maxLife:100, gravity:0.03});
+        } else {
+            if (frame % 7 === 0)
+                for (var k = 0; k < 4; k++)
+                    particles.push({x:W/2+(Math.random()-0.5)*350, y:H*0.75+Math.random()*H*0.2,
+                        vx:(Math.random()-0.5)*1.5, vy:-(0.4+Math.random()*1.5),
+                        color:colors[Math.floor(Math.random()*colors.length)],
+                        size:5+Math.random()*14, life:100+Math.random()*100, maxLife:200, gravity:-0.012});
+        }
+
+        /* draw */
+        for (var i = particles.length - 1; i >= 0; i--) {
+            var p = particles[i];
+            p.x += p.vx; p.y += p.vy; p.vy += p.gravity;
+            p.vx *= (tier === 'defeated' ? 0.994 : 0.989);
+            p.life--;
+            if (p.life <= 0) { particles.splice(i, 1); continue; }
+            var alpha = Math.pow(p.life / p.maxLife, tier === 'defeated' ? 0.4 : 1.0);
+            var radius = p.size * (tier === 'defeated' ? (1 + (1 - p.life/p.maxLife) * 2.5) : 1);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, Math.max(0.1, radius), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        frame++;
+        requestAnimationFrame(animate);
+    }
+
+    animate();
+};
+}
+"""
+
+
 # ── Theme & CSS ───────────────────────────────────────────────────────────────
 
 CSS = """
-/* ── Variables & page ───────────────────────────────────────────── */
+/* ── CSS variables ──────────────────────────────────────────────── */
 :root {
     --body-background-fill: #09070f;
     --block-background-fill: rgba(18, 13, 28, 0.82);
@@ -124,23 +304,19 @@ CSS = """
     --border-color-primary: rgba(196, 148, 20, 0.2);
     --color-text-body: #e8dcc8;
     --color-text-label: #c8a85a;
-    --button-primary-background-fill: linear-gradient(135deg, #b8890e 0%, #d4a820 100%);
-    --button-primary-background-fill-hover: linear-gradient(135deg, #c89818 0%, #e8b830 100%);
+    --button-primary-background-fill: linear-gradient(135deg,#b8890e,#d4a820);
+    --button-primary-background-fill-hover: linear-gradient(135deg,#c89818,#e8b830);
     --button-primary-text-color: #1a1005;
-    --button-secondary-background-fill: rgba(20, 14, 30, 0.9);
-    --button-secondary-border-color: rgba(196, 148, 20, 0.4);
+    --button-secondary-background-fill: rgba(20,14,30,0.9);
+    --button-secondary-border-color: rgba(196,148,20,0.4);
     --button-secondary-text-color: #c8a85a;
     --color-accent: #c49414;
-    --slider-color: #c49414;
-    --table-even-background-fill: rgba(18,13,28,0.6);
-    --table-odd-background-fill: rgba(12,9,20,0.6);
+    --color-accent-soft: rgba(196,148,20,0.15);
 }
 
 footer { display: none !important; }
 
-body {
-    background: #09070f !important;
-}
+body { background: #09070f !important; }
 
 .gradio-container {
     background: transparent !important;
@@ -149,35 +325,22 @@ body {
     padding: 24px 20px !important;
 }
 
-/* ── Global smooth transitions ─────────────────────────────────── */
+/* ── Global transitions ─────────────────────────────────────────── */
 *, *::before, *::after {
     transition: background-color 0.25s ease, border-color 0.25s ease,
                 box-shadow 0.25s ease, color 0.2s ease !important;
 }
-
 button {
-    transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
-                box-shadow 0.2s ease,
-                background 0.2s ease !important;
+    transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1),
+                box-shadow 0.2s ease, background 0.2s ease !important;
 }
-button:hover {
-    transform: translateY(-2px) !important;
-}
-button:active {
-    transform: translateY(0px) scale(0.97) !important;
-}
-button.primary:hover {
-    box-shadow: 0 8px 28px rgba(196, 148, 20, 0.45) !important;
-}
+button:hover { transform: translateY(-2px) !important; }
+button:active { transform: translateY(0) scale(0.97) !important; }
+button.primary:hover { box-shadow: 0 8px 28px rgba(196,148,20,0.45) !important; }
 button.secondary:hover {
-    box-shadow: 0 4px 14px rgba(196, 148, 20, 0.2) !important;
-    border-color: rgba(196, 148, 20, 0.7) !important;
+    box-shadow: 0 4px 14px rgba(196,148,20,0.2) !important;
+    border-color: rgba(196,148,20,0.7) !important;
     color: #f0d080 !important;
-}
-
-/* Dropdown / select animation */
-.wrap, select, input, textarea {
-    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
 }
 
 /* ── Scrollbars ─────────────────────────────────────────────────── */
@@ -186,26 +349,26 @@ button.secondary:hover {
 ::-webkit-scrollbar-thumb { background: rgba(196,148,20,0.35); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(196,148,20,0.6); }
 
-/* ── Header (breathing Erdtree glow) ───────────────────────────── */
+/* ── Header ─────────────────────────────────────────────────────── */
 .app-header {
     background:
-        radial-gradient(ellipse at 50% 0%, rgba(196,148,20,0.12) 0%, transparent 65%),
+        radial-gradient(ellipse at 50% 0%, rgba(196,148,20,0.13) 0%, transparent 65%),
         linear-gradient(170deg, #1c1409 0%, #2a1c07 50%, #1a1005 100%);
     border: 1px solid rgba(196,148,20,0.5);
     border-radius: 20px;
     padding: 36px 40px 30px;
     text-align: center;
     margin-bottom: 0;
-    position: relative;
     overflow: hidden;
+    position: relative;
     animation: breathe 5s ease-in-out infinite alternate;
 }
 .app-header::after {
-    content: '';
-    position: absolute;
-    bottom: 0; left: 10%; right: 10%;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(196,148,20,0.6), transparent);
+    content:'';
+    position:absolute;
+    bottom:0;left:10%;right:10%;
+    height:1px;
+    background:linear-gradient(90deg,transparent,rgba(196,148,20,0.6),transparent);
 }
 @keyframes breathe {
     from { box-shadow: 0 0 40px rgba(196,148,20,0.14), 0 0 0 1px rgba(196,148,20,0.3); }
@@ -227,104 +390,126 @@ button.secondary:hover {
     margin: 0 !important;
 }
 
-/* ── Stats badges ──────────────────────────────────────────────── */
+/* ── Stats bar ──────────────────────────────────────────────────── */
 .stats-row {
-    display: flex;
-    gap: 10px;
-    justify-content: center;
-    padding: 18px 0 4px;
-    flex-wrap: wrap;
+    display:flex; gap:10px; justify-content:center;
+    padding:16px 0 4px; flex-wrap:wrap;
 }
 .stat-pill {
-    background: rgba(18, 12, 6, 0.9);
-    border: 1px solid rgba(196,148,20,0.28);
-    border-radius: 50px;
-    padding: 7px 16px;
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    backdrop-filter: blur(8px);
-    cursor: default;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease !important;
+    background:rgba(18,12,6,0.9);
+    border:1px solid rgba(196,148,20,0.28);
+    border-radius:50px; padding:7px 16px;
+    display:inline-flex; align-items:center; gap:7px;
+    backdrop-filter:blur(8px); cursor:default;
 }
 .stat-pill:hover {
-    border-color: rgba(196,148,20,0.65);
-    box-shadow: 0 0 18px rgba(196,148,20,0.2);
-    transform: translateY(-1px);
+    border-color:rgba(196,148,20,0.65) !important;
+    box-shadow:0 0 18px rgba(196,148,20,0.2);
+    transform:translateY(-1px) !important;
 }
-.stat-icon { font-size: 1rem; }
-.stat-text { color: #c8a85a; font-size: 0.82rem; font-weight: 600; letter-spacing: 0.03em; }
-.stat-text b { color: #f0d080; }
+.stat-icon { font-size:1rem; }
+.stat-text { color:#c8a85a; font-size:0.82rem; font-weight:600; letter-spacing:0.03em; }
+.stat-text b { color:#f0d080; }
 
-/* ── Language selector bar ─────────────────────────────────────── */
+/* ── Language bar ───────────────────────────────────────────────── */
 .lang-bar {
-    background: rgba(14, 10, 22, 0.85) !important;
-    border: 1px solid rgba(196,148,20,0.25) !important;
-    border-radius: 14px !important;
-    padding: 16px 20px !important;
-    backdrop-filter: blur(12px) !important;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
+    background:rgba(14,10,22,0.85) !important;
+    border:1px solid rgba(196,148,20,0.25) !important;
+    border-radius:14px !important;
+    padding:16px 20px !important;
+    backdrop-filter:blur(12px) !important;
+    box-shadow:0 4px 20px rgba(0,0,0,0.4) !important;
 }
 
-/* ── Section description cards ─────────────────────────────────── */
+/* ── Section description cards ──────────────────────────────────── */
 .section-card {
-    background: rgba(26, 18, 9, 0.6);
-    border: 1px solid rgba(196,148,20,0.18);
-    border-left: 3px solid rgba(196,148,20,0.7);
-    border-radius: 0 10px 10px 0;
-    padding: 12px 16px;
-    margin-bottom: 4px;
+    border-left:3px solid rgba(196,148,20,0.7);
+    border-radius:0 10px 10px 0;
+    padding:12px 16px;
+    margin-bottom:4px;
 }
-.section-card b { color: #f0d080; font-size: 0.95rem; }
-.section-card span { color: #8a7040; font-size: 0.84rem; display: block; margin-top: 3px; }
+.section-card b { font-size:0.95rem; }
+.section-card span { font-size:0.84rem; display:block; margin-top:3px; }
 
-/* ── Tab nav ───────────────────────────────────────────────────── */
+/* ── Per-tab accent colours ─────────────────────────────────────── */
+/* Speak — blue */
+.tab-speak .section-card { background:rgba(59,130,246,0.07); border-left-color:rgba(59,130,246,0.7); }
+.tab-speak .section-card b { color:#60a5fa !important; }
+.tab-speak .section-card span { color:#3b6fd4 !important; }
+/* Grammar — emerald */
+.tab-grammar .section-card { background:rgba(16,185,129,0.07); border-left-color:rgba(16,185,129,0.7); }
+.tab-grammar .section-card b { color:#34d399 !important; }
+.tab-grammar .section-card span { color:#10a06e !important; }
+/* Quiz — violet */
+.tab-quiz .section-card { background:rgba(139,92,246,0.07); border-left-color:rgba(139,92,246,0.7); }
+.tab-quiz .section-card b { color:#a78bfa !important; }
+.tab-quiz .section-card span { color:#7c5cc4 !important; }
+/* Quick Translate — cyan */
+.tab-qtranslate .section-card { background:rgba(6,182,212,0.07); border-left-color:rgba(6,182,212,0.7); }
+.tab-qtranslate .section-card b { color:#22d3ee !important; }
+.tab-qtranslate .section-card span { color:#0891b2 !important; }
+/* Practice — amber */
+.tab-practice .section-card { background:rgba(245,158,11,0.07); border-left-color:rgba(245,158,11,0.7); }
+.tab-practice .section-card b { color:#fbbf24 !important; }
+.tab-practice .section-card span { color:#b45309 !important; }
+
+/* ── Tab nav ─────────────────────────────────────────────────────── */
 .tab-nav {
-    background: rgba(12, 9, 20, 0.9) !important;
-    border: 1px solid rgba(196,148,20,0.2) !important;
-    border-bottom: none !important;
-    border-radius: 14px 14px 0 0 !important;
-    padding: 6px 8px 0 !important;
-    gap: 3px !important;
-    backdrop-filter: blur(8px);
+    background:rgba(12,9,20,0.9) !important;
+    border:1px solid rgba(196,148,20,0.2) !important;
+    border-bottom:none !important;
+    border-radius:14px 14px 0 0 !important;
+    padding:6px 8px 0 !important;
+    gap:3px !important;
+    backdrop-filter:blur(8px);
 }
 .tab-nav button {
-    color: #6a5428 !important;
-    border-radius: 8px 8px 0 0 !important;
-    padding: 10px 20px !important;
-    font-weight: 600 !important;
-    font-size: 0.88rem !important;
-    letter-spacing: 0.02em !important;
-    border: none !important;
-    background: transparent !important;
+    color:#6a5428 !important; border-radius:8px 8px 0 0 !important;
+    padding:10px 20px !important; font-weight:600 !important;
+    font-size:0.88rem !important; letter-spacing:0.02em !important;
+    border:none !important; background:transparent !important;
 }
 .tab-nav button:hover {
-    color: #c8a85a !important;
-    background: rgba(196,148,20,0.08) !important;
-    transform: none !important;
-    box-shadow: none !important;
+    color:#c8a85a !important; background:rgba(196,148,20,0.08) !important;
+    transform:none !important; box-shadow:none !important;
 }
-.tab-nav button.selected {
-    color: #f0d080 !important;
-    background: rgba(196,148,20,0.15) !important;
-    border-bottom: 2px solid #c49414 !important;
+/* Each tab gets its own selected colour */
+.tab-nav button:nth-child(1).selected {
+    color:#60a5fa !important; border-bottom:2px solid #3b82f6 !important;
+    background:rgba(59,130,246,0.12) !important;
+}
+.tab-nav button:nth-child(2).selected {
+    color:#34d399 !important; border-bottom:2px solid #10b981 !important;
+    background:rgba(16,185,129,0.12) !important;
+}
+.tab-nav button:nth-child(3).selected {
+    color:#a78bfa !important; border-bottom:2px solid #8b5cf6 !important;
+    background:rgba(139,92,246,0.12) !important;
+}
+.tab-nav button:nth-child(4).selected {
+    color:#22d3ee !important; border-bottom:2px solid #06b6d4 !important;
+    background:rgba(6,182,212,0.12) !important;
+}
+.tab-nav button:nth-child(5).selected {
+    color:#fbbf24 !important; border-bottom:2px solid #f59e0b !important;
+    background:rgba(245,158,11,0.12) !important;
 }
 
-/* ── Tab content panel ─────────────────────────────────────────── */
+/* ── Tab content panel ───────────────────────────────────────────── */
 .tabitem {
-    background: rgba(12, 9, 20, 0.9) !important;
-    border: 1px solid rgba(196,148,20,0.2) !important;
-    border-top: none !important;
-    border-radius: 0 0 14px 14px !important;
-    padding: 20px !important;
-    backdrop-filter: blur(8px);
+    background:rgba(12,9,20,0.9) !important;
+    border:1px solid rgba(196,148,20,0.2) !important;
+    border-top:none !important;
+    border-radius:0 0 14px 14px !important;
+    padding:20px !important;
+    backdrop-filter:blur(8px);
 }
 
-/* ── Chatbot bubble area ────────────────────────────────────────── */
+/* ── Chatbot ─────────────────────────────────────────────────────── */
 .chatbot {
-    background: rgba(8, 6, 14, 0.95) !important;
-    border: 1px solid rgba(196,148,20,0.18) !important;
-    border-radius: 12px !important;
+    background:rgba(8,6,14,0.95) !important;
+    border:1px solid rgba(59,130,246,0.2) !important;
+    border-radius:12px !important;
 }
 """
 
@@ -389,196 +574,139 @@ def create_app() -> gr.Blocks:
             '<p>Master the arcane art of language &nbsp;·&nbsp; Ten tongues await the worthy</p>'
             '</div>'
         )
-
-        # Stats bar
         gr.Markdown(STATS_HTML)
 
         # Language selectors
         with gr.Row(elem_classes=["lang-bar"]):
-            native_sel = gr.Dropdown(
-                choices=LANGUAGES, value="English",
-                label="Your Language", scale=2,
-            )
-            lang_sel = gr.Dropdown(
-                choices=LANGUAGES, value="German",
-                label="Language to Learn", scale=2,
-            )
-            level_sel = gr.Dropdown(
-                choices=LEVELS, value="Beginner (A1-A2)",
-                label="Your Level", scale=2,
-            )
+            native_sel = gr.Dropdown(choices=LANGUAGES, value="English",
+                                     label="Your Language", scale=2)
+            lang_sel   = gr.Dropdown(choices=LANGUAGES, value="German",
+                                     label="Language to Learn", scale=2)
+            level_sel  = gr.Dropdown(choices=LEVELS, value="Beginner (A1-A2)",
+                                     label="Your Level", scale=2)
 
         with gr.Tabs():
 
-            # ── Chat ──────────────────────────────────────────────────────
+            # ── Speak ──────────────────────────────────────────────────────
             with gr.Tab("💬 Speak"):
-                gr.Markdown(tab_card(
-                    "💬", "Conversational Practice",
-                    "Chat with Arcana in your target language. Errors are corrected gently "
-                    "with explanations delivered in your native language."
-                ))
-                chatbot = gr.Chatbot(
-                    height=400,
-                    show_label=False,
-                    type="tuples",
-                    bubble_full_width=False,
-                )
-                chat_input = gr.Textbox(
-                    placeholder="Write something and press Enter to begin…",
-                    label="Your message",
-                    lines=2,
-                )
-                with gr.Row():
-                    send_btn  = gr.Button("Send", variant="primary", scale=3)
-                    clear_btn = gr.Button("Clear", variant="secondary", scale=1)
-
-                send_btn.click(
-                    handle_chat,
-                    [chat_input, chatbot, native_sel, lang_sel, level_sel],
-                    [chatbot, chat_input],
-                )
-                chat_input.submit(
-                    handle_chat,
-                    [chat_input, chatbot, native_sel, lang_sel, level_sel],
-                    [chatbot, chat_input],
-                )
-                clear_btn.click(lambda: ([], ""), outputs=[chatbot, chat_input])
+                with gr.Column(elem_classes=["tab-speak"]):
+                    gr.Markdown(tab_card("💬", "Conversational Practice",
+                        "Chat with Arcana in your target language. Errors are corrected gently "
+                        "with explanations in your native language."))
+                    chatbot = gr.Chatbot(height=400, show_label=False,
+                                         type="tuples", bubble_full_width=False)
+                    chat_input = gr.Textbox(
+                        placeholder="Write something and press Enter to begin…",
+                        label="Your message", lines=2)
+                    with gr.Row():
+                        send_btn  = gr.Button("Send",  variant="primary",    scale=3)
+                        clear_btn = gr.Button("Clear", variant="secondary",  scale=1)
+                    send_btn.click(handle_chat,
+                        [chat_input, chatbot, native_sel, lang_sel, level_sel],
+                        [chatbot, chat_input])
+                    chat_input.submit(handle_chat,
+                        [chat_input, chatbot, native_sel, lang_sel, level_sel],
+                        [chatbot, chat_input])
+                    clear_btn.click(lambda: ([], ""), outputs=[chatbot, chat_input])
 
             # ── Grammar ────────────────────────────────────────────────────
             with gr.Tab("✏️ Grammar"):
-                gr.Markdown(tab_card(
-                    "✏️", "Grammar Analysis",
-                    "Submit any sentence in your target language. Arcana identifies errors, "
-                    "explains the rules broken, and gives a personalised grammar tip."
-                ))
-                grammar_input = gr.Textbox(
-                    label="Your text",
-                    placeholder="Write a sentence in your target language…",
-                    lines=4,
-                )
-                check_btn = gr.Button("Analyse Grammar", variant="primary")
-                grammar_out = gr.Textbox(
-                    label="Analysis & Feedback",
-                    lines=13,
-                    interactive=False,
-                )
-                check_btn.click(
-                    handle_grammar,
-                    [grammar_input, native_sel, lang_sel, level_sel],
-                    grammar_out,
-                )
+                with gr.Column(elem_classes=["tab-grammar"]):
+                    gr.Markdown(tab_card("✏️", "Grammar Analysis",
+                        "Submit any sentence in your target language. Arcana identifies errors, "
+                        "explains the rules broken, and gives you a personalised grammar tip."))
+                    grammar_input = gr.Textbox(
+                        label="Your text",
+                        placeholder="Write a sentence in your target language…",
+                        lines=4)
+                    check_btn = gr.Button("Analyse Grammar", variant="primary")
+                    grammar_out = gr.Textbox(label="Analysis & Feedback",
+                                             lines=13, interactive=False)
+                    check_btn.click(handle_grammar,
+                        [grammar_input, native_sel, lang_sel, level_sel], grammar_out)
 
             # ── Quiz ───────────────────────────────────────────────────────
             with gr.Tab("📚 Quiz"):
-                gr.Markdown(tab_card(
-                    "📚", "Vocabulary Quiz",
-                    "Generate a quiz in your target language — fill-in-the-blank, "
-                    "multiple choice, and sentence construction. Answers are hidden until you submit."
-                ))
-                with gr.Row():
-                    topic_dd = gr.Dropdown(
-                        choices=QUIZ_TOPICS, value="General",
-                        label="Topic", scale=2,
+                with gr.Column(elem_classes=["tab-quiz"]):
+                    gr.Markdown(tab_card("📚", "Vocabulary Quiz",
+                        "Questions are generated with answers hidden. Submit your answers to "
+                        "receive a score — and unlock a spell animation based on how well you did!"))
+                    with gr.Row():
+                        topic_dd = gr.Dropdown(choices=QUIZ_TOPICS, value="General",
+                                               label="Topic", scale=2)
+                        topic_custom = gr.Textbox(
+                            label="Custom topic (optional)",
+                            placeholder="e.g. weather, colours…", scale=3)
+                    quiz_btn  = gr.Button("Generate Quiz", variant="primary")
+                    quiz_out  = gr.Textbox(label="Questions", lines=12, interactive=False)
+                    user_answers = gr.Textbox(
+                        label="Your Answers",
+                        placeholder="1. answer\n2. a / b / c / d\n3. …",
+                        lines=5)
+                    check_btn_quiz = gr.Button("Submit Answers ✨", variant="primary")
+                    quiz_feedback  = gr.Textbox(label="Results & Feedback",
+                                                lines=13, interactive=False)
+                    quiz_score = gr.Number(value=-1, visible=False)
+
+                    quiz_btn.click(handle_quiz,
+                        [native_sel, lang_sel, level_sel, topic_dd, topic_custom],
+                        [quiz_out, user_answers, quiz_feedback])
+
+                    check_btn_quiz.click(
+                        handle_quiz_check,
+                        [quiz_out, user_answers, native_sel, lang_sel, level_sel],
+                        [quiz_feedback, quiz_score],
+                    ).then(
+                        fn=None,
+                        inputs=[quiz_score],
+                        outputs=[],
+                        js="(score) => { if(window.triggerLinguaAnimation) window.triggerLinguaAnimation(score); }",
                     )
-                    topic_custom = gr.Textbox(
-                        label="Custom topic (optional)",
-                        placeholder="e.g. weather, colours…",
-                        scale=3,
-                    )
-                quiz_btn = gr.Button("Generate Quiz", variant="primary")
-                quiz_out = gr.Textbox(
-                    label="Questions",
-                    lines=12,
-                    interactive=False,
-                )
-                user_answers = gr.Textbox(
-                    label="Your Answers",
-                    placeholder="Write your answers here, e.g.:\n1. Kaffee\n2. b\n3. a\n4. Sie trinkt Kaffee.",
-                    lines=5,
-                )
-                check_btn_quiz = gr.Button("Submit Answers", variant="primary")
-                quiz_feedback = gr.Textbox(
-                    label="Results & Feedback",
-                    lines=13,
-                    interactive=False,
-                )
-                quiz_btn.click(
-                    handle_quiz,
-                    [native_sel, lang_sel, level_sel, topic_dd, topic_custom],
-                    [quiz_out, user_answers, quiz_feedback],
-                )
-                check_btn_quiz.click(
-                    handle_quiz_check,
-                    [quiz_out, user_answers, native_sel, lang_sel, level_sel],
-                    quiz_feedback,
-                )
 
             # ── Quick Translate ────────────────────────────────────────────
             with gr.Tab("🔄 Translate"):
-                gr.Markdown(tab_card(
-                    "🔄", "Quick Translation",
-                    "Instantly translate any text between any two supported languages. "
-                    "Includes key vocabulary breakdown and a grammar note to help you learn."
-                ))
-                with gr.Row():
-                    qt_from = gr.Dropdown(
-                        choices=LANGUAGES, value="English", label="From", scale=1,
-                    )
-                    qt_to = gr.Dropdown(
-                        choices=LANGUAGES, value="German", label="To", scale=1,
-                    )
-                qt_input = gr.Textbox(
-                    label="Text to translate",
-                    placeholder="Type anything you want to translate…",
-                    lines=3,
-                )
-                qt_btn = gr.Button("Translate", variant="primary")
-                qt_out = gr.Textbox(
-                    label="Translation + Vocabulary Notes",
-                    lines=17,
-                    interactive=False,
-                )
-                qt_btn.click(
-                    handle_quick_translate,
-                    [qt_input, qt_from, qt_to],
-                    qt_out,
-                )
+                with gr.Column(elem_classes=["tab-qtranslate"]):
+                    gr.Markdown(tab_card("🔄", "Quick Translation",
+                        "Instantly translate any text between any two supported languages. "
+                        "Includes vocabulary breakdown and a grammar note to help you learn."))
+                    with gr.Row():
+                        qt_from = gr.Dropdown(choices=LANGUAGES, value="English",
+                                              label="From", scale=1)
+                        qt_to   = gr.Dropdown(choices=LANGUAGES, value="German",
+                                              label="To", scale=1)
+                    qt_input = gr.Textbox(label="Text to translate",
+                                          placeholder="Type anything you want to translate…",
+                                          lines=3)
+                    qt_btn = gr.Button("Translate", variant="primary")
+                    qt_out = gr.Textbox(label="Translation + Vocabulary Notes",
+                                        lines=17, interactive=False)
+                    qt_btn.click(handle_quick_translate, [qt_input, qt_from, qt_to], qt_out)
 
             # ── Translation Practice ───────────────────────────────────────
             with gr.Tab("🌍 Practice"):
-                gr.Markdown(tab_card(
-                    "🌍", "Translation Practice",
-                    "Test yourself — write your own translation attempt and receive a scored "
-                    "evaluation with corrections, strengths, and alternative phrasings."
-                ))
-                with gr.Row():
-                    from_lang = gr.Dropdown(
-                        choices=LANGUAGES, value="English", label="From", scale=1,
-                    )
-                    to_lang = gr.Dropdown(
-                        choices=LANGUAGES, value="German", label="To", scale=1,
-                    )
-                original_txt = gr.Textbox(
-                    label="Original text",
-                    placeholder="The sentence you want to translate…",
-                    lines=3,
-                )
-                user_trans = gr.Textbox(
-                    label="Your translation",
-                    placeholder="Write your attempt here…",
-                    lines=3,
-                )
-                trans_btn = gr.Button("Evaluate Translation", variant="primary")
-                trans_out = gr.Textbox(
-                    label="Score & Feedback",
-                    lines=14,
-                    interactive=False,
-                )
-                trans_btn.click(
-                    handle_translation,
-                    [original_txt, user_trans, from_lang, to_lang],
-                    trans_out,
-                )
+                with gr.Column(elem_classes=["tab-practice"]):
+                    gr.Markdown(tab_card("🌍", "Translation Practice",
+                        "Test yourself — write your own translation attempt and receive a "
+                        "scored evaluation with corrections, strengths, and alternative phrasings."))
+                    with gr.Row():
+                        from_lang = gr.Dropdown(choices=LANGUAGES, value="English",
+                                                label="From", scale=1)
+                        to_lang   = gr.Dropdown(choices=LANGUAGES, value="German",
+                                                label="To", scale=1)
+                    original_txt = gr.Textbox(label="Original text",
+                                               placeholder="The sentence you want to translate…",
+                                               lines=3)
+                    user_trans = gr.Textbox(label="Your translation",
+                                             placeholder="Write your attempt here…",
+                                             lines=3)
+                    trans_btn = gr.Button("Evaluate Translation", variant="primary")
+                    trans_out = gr.Textbox(label="Score & Feedback",
+                                           lines=14, interactive=False)
+                    trans_btn.click(handle_translation,
+                        [original_txt, user_trans, from_lang, to_lang], trans_out)
+
+        # Define animation function in browser on page load
+        demo.load(fn=None, inputs=None, outputs=None, js=ANIM_JS_DEF)
 
     return demo
 
