@@ -56,7 +56,7 @@ class TutorLLM:
     ):
         """Stream chat tokens one chunk at a time."""
         system = (
-            f"You are LinguaBot, an AI language tutor. "
+            f"You are Arcana, an AI language tutor for the app Lingua Arcana. "
             f"The student speaks {native} natively and is learning {language} at {level} level.\n"
             f"RULES — follow these strictly:\n"
             f"1. Practice sentences and exercises are written in {language}.\n"
