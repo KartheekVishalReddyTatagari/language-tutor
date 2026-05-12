@@ -46,48 +46,24 @@ class TutorLLM:
             if delta:
                 yield delta
 
-    def chat(
-        self,
-        message: str,
-        history: List[List[str]],
-        language: str = "English",
-        level: str = "Beginner (A1-A2)",
-    ) -> str:
-        """Multi-turn conversational tutoring with history."""
-        system = (
-            f"You are LinguaBot, a warm and encouraging AI language tutor inspired by Duolingo. "
-            f"You are helping a {level} learner practice {language}. "
-            "Be concise, friendly, and educational. "
-            "When the student makes errors, correct them gently with a brief explanation. "
-            "Use occasional emojis to stay engaging. "
-            "If the student greets you, greet back and suggest what they can practice. "
-            "Keep responses under 160 words unless a detailed grammar explanation is requested."
-        )
-        messages = [{"role": "system", "content": system}]
-
-        for pair in history[-8:]:
-            if pair[0]:
-                messages.append({"role": "user", "content": pair[0]})
-            if pair[1]:
-                messages.append({"role": "assistant", "content": pair[1]})
-
-        messages.append({"role": "user", "content": message})
-        return self._call(messages, temperature=0.6, max_tokens=400)
-
     def chat_stream(
         self,
         message: str,
         history: List[List[str]],
-        language: str = "English",
+        native: str = "English",
+        language: str = "German",
         level: str = "Beginner (A1-A2)",
     ):
         """Stream chat tokens one chunk at a time."""
         system = (
-            f"You are LinguaBot, a warm and encouraging AI language tutor inspired by Duolingo. "
-            f"You are helping a {level} learner practice {language}. "
-            "Be concise, friendly, and educational. "
-            "When the student makes errors, correct them gently with a brief explanation. "
-            "Use occasional emojis to stay engaging. "
+            f"You are LinguaBot, an AI language tutor. "
+            f"The student speaks {native} natively and is learning {language} at {level} level.\n"
+            f"RULES — follow these strictly:\n"
+            f"1. Practice sentences and exercises are written in {language}.\n"
+            f"2. ALL explanations, corrections, encouragement, and instructions MUST be written in {native}. "
+            f"NEVER use English unless {native} is English.\n"
+            f"3. If the student writes in the wrong language, gently redirect them in {native}.\n"
+            "4. Be warm, concise, and use occasional emojis. "
             "Keep responses under 160 words unless a detailed grammar explanation is requested."
         )
         messages = [{"role": "system", "content": system}]
@@ -102,16 +78,18 @@ class TutorLLM:
     def check_grammar(
         self,
         text: str,
-        language: str = "English",
+        native: str = "English",
+        language: str = "German",
         level: str = "Beginner (A1-A2)",
     ) -> str:
         """Return structured grammar feedback with correction, explanation, and a tip."""
         system = (
-            f"You are an expert {language} grammar coach for {level} learners. "
-            "Provide structured, encouraging feedback."
+            f"You are an expert {language} grammar coach for {level} learners whose native language is {native}. "
+            f"You MUST write ALL feedback, explanations, and tips in {native}. "
+            f"NEVER use English unless {native} is English."
         )
         user = (
-            f"Check the following text for grammar errors:\n\n\"{text}\"\n\n"
+            f"Check the following {language} text for grammar errors:\n\n\"{text}\"\n\n"
             "Reply using **exactly** this format (no extra sections):\n\n"
             "**✅ Corrected Version:**\n[corrected text, or 'No errors found!' if correct]\n\n"
             "**🔍 Errors Found:**\n[numbered list — each error, what rule was broken, and the fix; "
@@ -123,7 +101,8 @@ class TutorLLM:
 
     def generate_quiz(
         self,
-        language: str = "English",
+        native: str = "English",
+        language: str = "German",
         level: str = "Beginner (A1-A2)",
         topic: str = "",
     ) -> str:
@@ -134,14 +113,18 @@ class TutorLLM:
             "Create fun, Duolingo-style exercises. NEVER reveal answers in this step."
         )
         user = (
-            f"Create a short quiz{topic_str} for a {level} {language} learner.\n\n"
+            f"Create a short {language} vocabulary quiz{topic_str} for a {level} learner "
+            f"whose native language is {native}.\n\n"
+            f"All exercises must test {language} vocabulary and grammar. "
+            f"Write the questions in {language}. "
+            f"You may add a short {native} instruction line at the top of each section so the student knows what to do.\n\n"
             "Include these **three** exercise types:\n\n"
-            "**📝 Fill in the Blank** (2 questions):\n"
-            "[question with ___ blank — do NOT include the answer]\n\n"
-            "**🔤 Multiple Choice** (2 questions — do NOT mark the correct answer):\n"
-            "[question]\na) ... b) ... c) ... d) ...\n\n"
-            "**🌍 Translate This** (1 sentence — do NOT provide a model answer):\n"
-            "[sentence to translate into {language}]\n\n"
+            f"**📝 Fill in the Blank** (2 questions — use a {language} word in a {language} sentence):\n"
+            f"[{language} sentence with ___ blank — do NOT include the answer]\n\n"
+            f"**🔤 Multiple Choice** (2 questions — do NOT mark the correct answer):\n"
+            f"[{language} question about word meaning or usage]\na) ... b) ... c) ... d) ...\n\n"
+            f"**✍️ Use It in a Sentence** (1 vocabulary word):\n"
+            f"[give one {language} vocabulary word and ask the learner to write an original {language} sentence using it]\n\n"
             "Show ONLY the questions. No answers, no hints, no correct-answer markers."
         )
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -151,23 +134,49 @@ class TutorLLM:
         self,
         quiz_text: str,
         user_answers: str,
-        language: str = "English",
+        native: str = "English",
+        language: str = "German",
         level: str = "Beginner (A1-A2)",
     ) -> str:
         """Evaluate student answers against the quiz questions."""
         system = (
-            f"You are a friendly {language} quiz evaluator for {level} learners. "
-            "Give encouraging, clear feedback."
+            f"You are a friendly {language} quiz evaluator for {level} learners whose native language is {native}. "
+            f"You MUST write ALL feedback and explanations in {native}. "
+            f"NEVER use English unless {native} is English."
         )
         user = (
             f"Quiz questions:\n{quiz_text}\n\n"
             f"Student's answers:\n{user_answers}\n\n"
-            "For each question, reveal the correct answer and tell the student if they were "
-            "right or wrong with a brief explanation. "
+            "For each question:\n"
+            "- Fill in the blank / Multiple choice: reveal the correct answer, say right or wrong with a brief explanation.\n"
+            "- 'Use It in a Sentence': check if the sentence is grammatically correct and uses the word properly; "
+            "suggest an improvement if needed.\n\n"
             "End with a score out of 5 and a short motivating message."
         )
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         return self._call(messages, temperature=0.4, max_tokens=700)
+
+    def quick_translate(
+        self,
+        text: str,
+        from_lang: str = "English",
+        to_lang: str = "German",
+    ) -> str:
+        """Translate text and explain key vocabulary so the learner picks something up."""
+        system = (
+            f"You are a helpful {from_lang}–{to_lang} translator and language teacher."
+        )
+        user = (
+            f"Translate the following from {from_lang} to {to_lang}:\n\n\"{text}\"\n\n"
+            "Reply using **exactly** this format:\n\n"
+            f"**🌍 Translation ({to_lang}):**\n[the translation]\n\n"
+            "**📖 Key Vocabulary:**\n"
+            "[a numbered list of 3–5 important words or phrases from the translation — "
+            f"show the {to_lang} word, its {from_lang} meaning, and one example sentence in {to_lang}]\n\n"
+            "**💡 Note:**\n[one short tip about grammar or phrasing that is useful to remember]"
+        )
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        return self._call(messages, temperature=0.3, max_tokens=600)
 
     def check_translation(
         self,
@@ -197,4 +206,4 @@ class TutorLLM:
     def generate(self, user_message: str, mode: str = "grammar", language: str = "English") -> str:
         """Legacy single-turn method kept for backward compatibility."""
         level_hint = "Intermediate (B1-B2)" if mode == "dialogue" else "Beginner (A1-A2)"
-        return self.chat(user_message, history=[], language=language, level=level_hint)
+        return self.chat_stream(user_message, history=[], language=language, level=level_hint)

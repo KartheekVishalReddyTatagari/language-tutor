@@ -32,10 +32,9 @@ def get_llm() -> TutorLLM:
     return _llm
 
 
-# ── Chat handler (streaming generator — Chatbot supports it) ──────────────────
+# ── Chat handler (streaming generator) ───────────────────────────────────────
 
-def handle_chat(message: str, history: list, language: str, level: str):
-    """history is list of [user, bot] tuples (type='tuples')."""
+def handle_chat(message: str, history: list, native: str, language: str, level: str):
     message = message.strip()
     if not message:
         yield history, ""
@@ -45,7 +44,7 @@ def handle_chat(message: str, history: list, language: str, level: str):
     reply = ""
     try:
         for chunk in get_llm().chat_stream(
-            message, history=history, language=language, level=level
+            message, history=history, native=native, language=language, level=level
         ):
             reply += chunk
             new_history[-1][1] = reply
@@ -55,35 +54,46 @@ def handle_chat(message: str, history: list, language: str, level: str):
         yield new_history, ""
 
 
-# ── Other handlers (plain functions — no streaming needed) ────────────────────
+# ── Other handlers ────────────────────────────────────────────────────────────
 
-def handle_grammar(text: str, language: str, level: str) -> str:
+def handle_grammar(text: str, native: str, language: str, level: str) -> str:
     if not text.strip():
         return "Please enter some text first."
     try:
-        return get_llm().check_grammar(text, language=language, level=level)
+        return get_llm().check_grammar(text, native=native, language=language, level=level)
     except Exception as e:
         return f"Error: {e}"
 
 
-def handle_quiz(language: str, level: str, topic_dd: str, topic_custom: str):
+def handle_quiz(native: str, language: str, level: str, topic_dd: str, topic_custom: str):
     topic = topic_custom.strip() or topic_dd
     try:
-        questions = get_llm().generate_quiz(language=language, level=level, topic=topic)
+        questions = get_llm().generate_quiz(
+            native=native, language=language, level=level, topic=topic
+        )
     except Exception as e:
         questions = f"Error: {e}"
     return questions, "", ""
 
 
-def handle_quiz_check(quiz_text: str, user_answers: str, language: str, level: str) -> str:
+def handle_quiz_check(quiz_text: str, user_answers: str, native: str, language: str, level: str) -> str:
     if not quiz_text.strip():
         return "Please generate a quiz first."
     if not user_answers.strip():
         return "Please write your answers before checking."
     try:
         return get_llm().check_quiz_answers(
-            quiz_text, user_answers, language=language, level=level
+            quiz_text, user_answers, native=native, language=language, level=level
         )
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def handle_quick_translate(text: str, from_lang: str, to_lang: str) -> str:
+    if not text.strip():
+        return "Please enter some text to translate."
+    try:
+        return get_llm().quick_translate(text, from_lang=from_lang, to_lang=to_lang)
     except Exception as e:
         return f"Error: {e}"
 
@@ -111,9 +121,13 @@ def create_app() -> gr.Blocks:
         )
 
         with gr.Row():
-            lang_sel = gr.Dropdown(
+            native_sel = gr.Dropdown(
                 choices=LANGUAGES, value="English",
-                label="Target Language", scale=2,
+                label="Your Language", scale=2,
+            )
+            lang_sel = gr.Dropdown(
+                choices=LANGUAGES, value="German",
+                label="Language to Learn", scale=2,
             )
             level_sel = gr.Dropdown(
                 choices=LEVELS, value="Beginner (A1-A2)",
@@ -140,12 +154,12 @@ def create_app() -> gr.Blocks:
 
                 send_btn.click(
                     handle_chat,
-                    [chat_input, chatbot, lang_sel, level_sel],
+                    [chat_input, chatbot, native_sel, lang_sel, level_sel],
                     [chatbot, chat_input],
                 )
                 chat_input.submit(
                     handle_chat,
-                    [chat_input, chatbot, lang_sel, level_sel],
+                    [chat_input, chatbot, native_sel, lang_sel, level_sel],
                     [chatbot, chat_input],
                 )
                 clear_btn.click(lambda: ([], ""), outputs=[chatbot, chat_input])
@@ -154,7 +168,7 @@ def create_app() -> gr.Blocks:
             with gr.Tab("✏️ Grammar Check"):
                 grammar_input = gr.Textbox(
                     label="Your text",
-                    placeholder="e.g. She don't likes coffee.",
+                    placeholder="e.g. Sie don't likes Kaffee.",
                     lines=4,
                 )
                 check_btn   = gr.Button("Check Grammar", variant="primary")
@@ -163,7 +177,7 @@ def create_app() -> gr.Blocks:
                 )
                 check_btn.click(
                     handle_grammar,
-                    [grammar_input, lang_sel, level_sel],
+                    [grammar_input, native_sel, lang_sel, level_sel],
                     grammar_out,
                 )
 
@@ -184,27 +198,51 @@ def create_app() -> gr.Blocks:
                     label="Your Answers",
                     placeholder=(
                         "Write your answers here, e.g.:\n"
-                        "1. coffee\n2. a\n3. b\n4. Sie trinkt Kaffee\n5. …"
+                        "1. Kaffee\n2. b\n3. a\n4. Sie trinkt Kaffee.\n5. …"
                     ),
                     lines=6,
                 )
-                check_btn = gr.Button("Check My Answers", variant="primary")
+                check_btn_quiz = gr.Button("Check My Answers", variant="primary")
                 quiz_feedback = gr.Textbox(
                     label="Results & Feedback", lines=14, interactive=False,
                 )
                 quiz_btn.click(
                     handle_quiz,
-                    [lang_sel, level_sel, topic_dd, topic_custom],
+                    [native_sel, lang_sel, level_sel, topic_dd, topic_custom],
                     [quiz_out, user_answers, quiz_feedback],
                 )
-                check_btn.click(
+                check_btn_quiz.click(
                     handle_quiz_check,
-                    [quiz_out, user_answers, lang_sel, level_sel],
+                    [quiz_out, user_answers, native_sel, lang_sel, level_sel],
                     quiz_feedback,
                 )
 
-            # ── Translation ────────────────────────────────────────────────
-            with gr.Tab("🌍 Translation"):
+            # ── Quick Translate ────────────────────────────────────────────
+            with gr.Tab("🔄 Quick Translate"):
+                with gr.Row():
+                    qt_from = gr.Dropdown(
+                        choices=LANGUAGES, value="English", label="From", scale=1,
+                    )
+                    qt_to = gr.Dropdown(
+                        choices=LANGUAGES, value="German", label="To", scale=1,
+                    )
+                qt_input = gr.Textbox(
+                    label="Text to translate",
+                    placeholder="Type anything you want to translate…",
+                    lines=3,
+                )
+                qt_btn = gr.Button("Translate", variant="primary")
+                qt_out = gr.Textbox(
+                    label="Translation + Vocabulary Notes", lines=18, interactive=False,
+                )
+                qt_btn.click(
+                    handle_quick_translate,
+                    [qt_input, qt_from, qt_to],
+                    qt_out,
+                )
+
+            # ── Translation Practice ───────────────────────────────────────
+            with gr.Tab("🌍 Translation Practice"):
                 with gr.Row():
                     from_lang = gr.Dropdown(
                         choices=LANGUAGES, value="English", label="From", scale=1,
