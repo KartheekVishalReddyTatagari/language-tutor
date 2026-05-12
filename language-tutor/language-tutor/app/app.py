@@ -112,15 +112,56 @@ def handle_translation(original: str, translation: str,
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 
+CSS = """
+footer { display: none !important; }
+
+.app-header {
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    border-radius: 16px;
+    padding: 28px 32px;
+    text-align: center;
+    margin-bottom: 8px;
+    box-shadow: 0 4px 24px rgba(79, 70, 229, 0.25);
+}
+.app-header h1 {
+    color: white !important;
+    font-size: 2rem !important;
+    margin: 0 0 6px 0 !important;
+    font-weight: 700 !important;
+}
+.app-header p {
+    color: rgba(255,255,255,0.88) !important;
+    font-size: 1rem !important;
+    margin: 0 !important;
+}
+
+.lang-bar {
+    background: #f8f7ff;
+    border: 1px solid #e0e7ff;
+    border-radius: 12px;
+    padding: 12px 16px;
+}
+"""
+
+THEME = gr.themes.Soft(
+    primary_hue="violet",
+    secondary_hue="indigo",
+    neutral_hue="slate",
+    font=gr.themes.GoogleFont("Inter"),
+)
+
+
 def create_app() -> gr.Blocks:
-    with gr.Blocks(title="LinguaBot - AI Language Tutor") as demo:
+    with gr.Blocks(title="LinguaBot - AI Language Tutor", theme=THEME, css=CSS) as demo:
 
         gr.Markdown(
-            "# 🦜 LinguaBot — AI Language Tutor\n"
-            "Practice grammar, vocabulary, translation and conversation in 10 languages."
+            """<div class="app-header">
+            <h1>🦜 LinguaBot — AI Language Tutor</h1>
+            <p>Practice grammar, vocabulary, translation and conversation in 10 languages.</p>
+            </div>"""
         )
 
-        with gr.Row():
+        with gr.Row(elem_classes=["lang-bar"]):
             native_sel = gr.Dropdown(
                 choices=LANGUAGES, value="English",
                 label="Your Language", scale=2,
