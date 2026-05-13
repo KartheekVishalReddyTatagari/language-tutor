@@ -8,6 +8,8 @@ from src.finetune import TutorLLM, LLMConfig
 
 load_dotenv()
 
+_FINETUNED_MODEL_ID = os.getenv("FINETUNED_MODEL_ID", "").strip()
+
 LANGUAGES = [
     "English", "German", "French", "Spanish", "Italian",
     "Portuguese", "Turkish", "Arabic", "Chinese", "Japanese",
@@ -21,14 +23,29 @@ QUIZ_TOPICS = [
 _llm: TutorLLM | None = None
 
 
-def get_llm() -> TutorLLM:
+def get_llm():
     global _llm
     if _llm is None:
-        cfg = LLMConfig(
-            groq_api_key=os.getenv("GROQ_API_KEY"),
-            groq_model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
-        )
-        _llm = TutorLLM(cfg)
+        if _FINETUNED_MODEL_ID:
+            try:
+                from src.local_model import LocalTutorLLM
+                _llm = LocalTutorLLM(
+                    model_id=_FINETUNED_MODEL_ID,
+                    hf_token=os.getenv("HF_API_TOKEN"),
+                )
+                print(f"[app] Using fine-tuned model: {_FINETUNED_MODEL_ID}")
+            except Exception as e:
+                print(f"[app] Fine-tuned model failed to load ({e}), falling back to Groq.")
+                _llm = None
+
+        if _llm is None:
+            cfg = LLMConfig(
+                groq_api_key=os.getenv("GROQ_API_KEY"),
+                groq_model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+                finetuned_model_id=_FINETUNED_MODEL_ID or None,
+            )
+            _llm = TutorLLM(cfg)
+            print("[app] Using Groq backend.")
     return _llm
 
 
@@ -52,19 +69,27 @@ def handle_chat(message: str, history: list, native: str, language: str, level: 
     if not message:
         yield history, ""
         return
-    new_history = history + [[message, None]]
+    # Convert messages format [{role, content}] to tuples [[user, bot]] for the LLM
+    history_tuples = []
+    msgs = history or []
+    i = 0
+    while i < len(msgs) - 1:
+        if msgs[i]["role"] == "user" and msgs[i + 1]["role"] == "assistant":
+            history_tuples.append([msgs[i]["content"], msgs[i + 1]["content"]])
+            i += 2
+        else:
+            i += 1
+    new_history = list(msgs) + [{"role": "user", "content": message}]
     yield new_history, ""
     reply = ""
     try:
         for chunk in get_llm().chat_stream(
-            message, history=history, native=native, language=language, level=level
+            message, history=history_tuples, native=native, language=language, level=level
         ):
             reply += chunk
-            new_history[-1][1] = reply
-            yield new_history, ""
+            yield new_history + [{"role": "assistant", "content": reply}], ""
     except Exception as e:
-        new_history[-1][1] = f"Error: {e}"
-        yield new_history, ""
+        yield new_history + [{"role": "assistant", "content": f"Error: {e}"}], ""
 
 
 def handle_grammar(text: str, native: str, language: str, level: str) -> str:
@@ -783,7 +808,7 @@ def tab_card(icon: str, title: str, desc: str) -> str:
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 def create_app() -> gr.Blocks:
-    with gr.Blocks(title="Lingua Arcana", theme=THEME, css=CSS) as demo:
+    with gr.Blocks(title="Lingua Arcana") as demo:
 
         # Header
         gr.Markdown(
@@ -811,8 +836,7 @@ def create_app() -> gr.Blocks:
                     gr.Markdown(tab_card("💬", "Conversational Practice",
                         "Chat with Arcana in your target language. Errors are corrected gently "
                         "with explanations in your native language."))
-                    chatbot = gr.Chatbot(height=400, show_label=False,
-                                         type="tuples", bubble_full_width=False)
+                    chatbot = gr.Chatbot(height=400, show_label=False)
                     chat_input = gr.Textbox(
                         placeholder="Write something and press Enter to begin…",
                         label="Your message", lines=2)
@@ -924,7 +948,7 @@ def create_app() -> gr.Blocks:
                         [original_txt, user_trans, from_lang, to_lang], trans_out)
 
         # Define animation function in browser on page load
-        demo.load(fn=None, inputs=None, outputs=None, js=ANIM_JS_DEF)
+        demo.load(fn=None, inputs=[], outputs=[], js=ANIM_JS_DEF)
 
     return demo
 
@@ -935,5 +959,6 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=int(os.getenv("PORT", "7860")),
         share=False,
-        show_api=False,
+        theme=THEME,
+        css=CSS,
     )

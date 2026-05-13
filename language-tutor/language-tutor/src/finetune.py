@@ -11,6 +11,7 @@ class LLMConfig:
     groq_model: str = "llama-3.1-8b-instant"
     local_model_dir: Optional[str] = None
     hf_token: Optional[str] = None
+    finetuned_model_id: Optional[str] = None  # HuggingFace model ID for the fine-tuned model
 
 
 class TutorLLM:
